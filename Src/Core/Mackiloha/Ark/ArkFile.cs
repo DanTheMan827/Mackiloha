@@ -553,6 +553,10 @@ namespace Mackiloha.Ark
             if (_encrypted)
             {
                 byte xor = (byte)((_xor && ((int)Version >= 10)) ? 0xFF : 0x00);
+                if (ForcedXor.HasValue)
+                {
+                    xor = ForcedXor.Value;
+                }
 
                 // Encrypts HDR file
                 aw.BaseStream.Seek(hdrStart, SeekOrigin.Begin);
@@ -599,7 +603,7 @@ namespace Mackiloha.Ark
                 foreach (var e in hashEntry)
                 {
                     var entry = e.Entry;
-                    WriteNewEntry(aw, entry, prevHashIdx, Version == ArkVersion.V9);
+                    WriteNewEntry(aw, entry, prevHashIdx, Version == ArkVersion.V9, ForcedExtraFlag.HasValue ? ForcedExtraFlag.Value : null);
 
                     prevHashIdx = ++entryIdx;
                 }
@@ -632,7 +636,7 @@ namespace Mackiloha.Ark
             }
         }
 
-        private static void WriteNewEntry(AwesomeWriter aw, OffsetArkEntry entry, int prevHash, bool extraFlag = false)
+        private static void WriteNewEntry(AwesomeWriter aw, OffsetArkEntry entry, int prevHash, bool extraFlag = false, UInt32? forcedExtraFlag = null)
         {
             // TODO: Figure out if this hack is actually needed
             var fullPath = (extraFlag)
@@ -645,8 +649,15 @@ namespace Mackiloha.Ark
             aw.Write((uint)entry.Size);
 
             // Only ark v9 seems to have this (0x‭7D401F60 when entry size not 0‬)
-            if (extraFlag)
-                aw.Write((int)((entry.Size <= 0) ? 0 : 0x7D401F60));
+            if (forcedExtraFlag.HasValue)
+            {
+                aw.Write(forcedExtraFlag.Value);
+            }
+            else
+            {
+                if (extraFlag)
+                    aw.Write((int)((entry.Size <= 0) ? 0 : 0x7D401F60));
+            }
         }
 
         private void WriteClassicFileEntries(AwesomeWriter aw)
@@ -1149,6 +1160,8 @@ namespace Mackiloha.Ark
         public string DirectoryName => Path.GetDirectoryName(this._arkPaths[0]);
         public override string FileName => Path.GetFileName(this._arkPaths[0]);
         public override string FullPath => this._arkPaths[0];
+        public UInt32? ForcedExtraFlag { get; set; }
+        public byte? ForcedXor { get; set; }
 
         internal string ArkPath(int index) => this._arkPaths[index];
 
