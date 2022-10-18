@@ -1,15 +1,10 @@
-﻿using ArkHelper.Exceptions;
-using ArkHelper.Helpers;
+﻿using ArkHelper.Helpers;
 using ArkHelper.Options;
 using Mackiloha;
 using Mackiloha.Ark;
-using Mackiloha.CSV;
-using Mackiloha.Milo2;
 using System;
-using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Text;
 using System.Text.RegularExpressions;
 
 namespace ArkHelper.Apps
@@ -31,16 +26,14 @@ namespace ArkHelper.Apps
             var genPathedFile = new Regex(@"(?i)gen[\/][^\/]+$");
             var dotRegex = new Regex(@"\([.]+\)/");
             var forgeScriptRegex = new Regex("(?i).((dta)|(fusion)|(moggsong)|(script))$");
-            var arkPartSizeLimit = (op.PartSizeLimit > 0)
-                ? op.PartSizeLimit
-                : uint.MaxValue;
+            uint arkPartSizeLimit = uint.MaxValue;
 
             if (!Directory.Exists(op.InputPath))
             {
                 throw new DirectoryNotFoundException($"Can't find directory \"{op.InputPath}\"");
             }
 
-            var arkDir = Path.GetFullPath(op.OutputPath);
+            string arkDir = Path.GetFullPath(op.OutputPath);
 
             // Set encrypted data
             if (op.ArkVersion < 3)
@@ -61,7 +54,7 @@ namespace ArkHelper.Apps
 
             // Load ark cache if path given
             bool usingCache = false;
-            if (!(op.CachePath is null))
+            if (op.CachePath is not null)
             {
                 CacheHelper.LoadCache(op.CachePath, op.ArkVersion, op.Encrypt);
                 usingCache = true;
@@ -69,76 +62,36 @@ namespace ArkHelper.Apps
 
             // Create directory if it doesn't exist
             if (!Directory.Exists(arkDir))
-                Directory.CreateDirectory(arkDir);
+            {
+                _ = Directory.CreateDirectory(arkDir);
+            }
 
             // If name is all caps, match extension
-            var hdrExt = op.ArkVersion >= 3
+            string hdrExt = op.ArkVersion >= 3
                 ? ".hdr"
                 : ".ark";
 
             if (op.ArkName.All(c => char.IsUpper(c)))
+            {
                 hdrExt = hdrExt.ToUpper();
+            }
 
             // Create ark
-            var hdrPath = Path.Combine(arkDir, $"{op.ArkName}{hdrExt}");
-            var ark = ArkFile.Create(hdrPath, (ArkVersion)op.ArkVersion, (int?)op.EncryptKey);
+            string hdrPath = Path.Combine(arkDir, $"{op.ArkName}{hdrExt}");
+            var ark = ArkFile.Create(hdrPath, ArkVersion.V9, -967906000);
+            ark.ForcedXor = 0xFF;
+            ark.ForcedExtraFlag = 0x7D401F60; // CSettings::mbPS4 ? 0xDDB682F0 : 0x7D401F60
 
-            var files = Directory.GetFiles(op.InputPath, "*", SearchOption.AllDirectories);
+            string[] files = Directory.GetFiles(op.InputPath, "*", SearchOption.AllDirectories);
 
-            // Create temp path and guess platform
-            var tempDir = CreateTemporaryDirectory();
-            var platformExt = GuessPlatform(op.InputPath);
+            uint currentPartSize = 0u;
 
-            var currentPartSize = 0u;
-
-            foreach (var file in files)
+            foreach (string file in files)
             {
-                var internalPath = FileHelper.GetRelativePath(file, op.InputPath)
+                string internalPath = FileHelper.GetRelativePath(file, op.InputPath)
                     .Replace("\\", "/"); // Must be "/" in ark
 
                 string inputFilePath = file;
-
-                if ((int)ark.Version < 7 && dtaRegex.IsMatch(internalPath))
-                {
-                    // Updates path
-                    internalPath = $"{internalPath.Substring(0, internalPath.Length - 1)}b";
-
-                    if (!genPathedFile.IsMatch(internalPath))
-                        internalPath = internalPath.Insert(internalPath.LastIndexOf('/'), "/gen");
-
-                    // Use cache if available
-                    if (usingCache)
-                    {
-                        var cachePath = CacheHelper
-                            .GetCachedPathIfNotUpdated(inputFilePath, internalPath);
-
-                        if (cachePath is null)
-                        {
-                            var dtbPath = ScriptHelper
-                                .ConvertDtaToDtb(file, tempDir, ark.Encrypted, (int)ark.Version);
-
-                            CacheHelper.UpdateCachedFile(inputFilePath, internalPath, dtbPath);
-                            inputFilePath = dtbPath;
-                        }
-                        else
-                        {
-                            inputFilePath = cachePath;
-                        }
-                    }
-                    else
-                    {
-                        // Creates temp dtb file
-                        inputFilePath = ScriptHelper.ConvertDtaToDtb(file, tempDir, ark.Encrypted, (int)ark.Version);
-                    }
-                }
-                else if ((int)ark.Version >= 7 && forgeScriptRegex.IsMatch(internalPath))
-                {
-                    // Updates path
-                    internalPath = $"{internalPath}_dta_{platformExt}";
-
-                    // Creates temp dtb file
-                    inputFilePath = ScriptHelper.ConvertDtaToDtb(file, tempDir, ark.Encrypted, (int)ark.Version);
-                }
 
                 if (dotRegex.IsMatch(internalPath))
                 {
@@ -146,11 +99,11 @@ namespace ArkHelper.Apps
                 }
 
                 // Check part limit
-                var fileSizeLong = new FileInfo(inputFilePath).Length;
-                var fileSize = (uint)fileSizeLong;
-                var potentialPartSize = currentPartSize + fileSize;
+                long fileSizeLong = new FileInfo(inputFilePath).Length;
+                uint fileSize = (uint)fileSizeLong;
+                uint potentialPartSize = currentPartSize + fileSize;
 
-                if (fileSizeLong > (long)uint.MaxValue)
+                if (fileSizeLong > uint.MaxValue)
                 {
                     throw new NotSupportedException($"File size above 4GB is unsupported for \"{file}\"");
                 }
@@ -163,8 +116,8 @@ namespace ArkHelper.Apps
                     currentPartSize = 0;
                 }
 
-                var fileName = Path.GetFileName(internalPath);
-                var dirPath = Path.GetDirectoryName(internalPath).Replace("\\", "/"); // Must be "/" in ark
+                string fileName = Path.GetFileName(internalPath);
+                string dirPath = Path.GetDirectoryName(internalPath).Replace("\\", "/"); // Must be "/" in ark
 
                 var pendingEntry = new PendingArkEntry(fileName, dirPath)
                 {
@@ -179,9 +132,13 @@ namespace ArkHelper.Apps
 
             ark.CommitChanges(true);
             if (op.ArkVersion < 3)
+            {
                 Console.WriteLine($"Wrote ark to \"{hdrPath}\"");
+            }
             else
+            {
                 Console.WriteLine($"Wrote hdr to \"{hdrPath}\"");
+            }
 
             if (usingCache)
             {
@@ -196,7 +153,9 @@ namespace ArkHelper.Apps
             var match = platformRegex.Match(arkPath);
 
             if (!match.Success)
+            {
                 return null;
+            }
 
             return match
                 .Groups[1]
@@ -207,9 +166,11 @@ namespace ArkHelper.Apps
         protected virtual string CreateTemporaryDirectory()
         {
             // Create directory in temp path
-            var tempDir = Path.Combine(Path.GetTempPath(), Path.GetFileNameWithoutExtension(Path.GetRandomFileName()));
+            string tempDir = Path.Combine(Path.GetTempPath(), Path.GetFileNameWithoutExtension(Path.GetRandomFileName()));
             if (Directory.Exists(tempDir))
+            {
                 Directory.Delete(tempDir, true);
+            }
 
             return tempDir;
         }
@@ -218,7 +179,9 @@ namespace ArkHelper.Apps
         {
             // Clean up files
             if (Directory.Exists(dirPath))
+            {
                 Directory.Delete(dirPath, true);
+            }
         }
     }
 }
