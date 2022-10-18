@@ -78,9 +78,9 @@ namespace ArkHelper.Apps
 
             // Create ark
             string hdrPath = Path.Combine(arkDir, $"{op.ArkName}{hdrExt}");
-            var ark = ArkFile.Create(hdrPath, ArkVersion.V9, -967906000);
+            var ark = ArkFile.Create(hdrPath, ArkVersion.V9, -1865432917); // ps3: -967906000, ps4: -1865432917
             ark.ForcedXor = 0xFF;
-            ark.ForcedExtraFlag = 0x7D401F60; // CSettings::mbPS4 ? 0xDDB682F0 : 0x7D401F60
+            ark.ForcedExtraFlag = 0xDDB682F0; // CSettings::mbPS4 ? 0xDDB682F0 : 0x7D401F60
 
             string[] files = Directory.GetFiles(op.InputPath, "*", SearchOption.AllDirectories);
 
@@ -144,6 +144,11 @@ namespace ArkHelper.Apps
             {
                 CacheHelper.SaveCache();
             }
+
+            using var header = new FileStream(hdrPath, FileMode.Open, FileAccess.ReadWrite);
+            header.Seek(0, SeekOrigin.Begin);
+            using var writer = new AwesomeWriter(header);
+            writer.Write(0x6f303f55);
         }
 
         protected virtual string GuessPlatform(string arkPath)
